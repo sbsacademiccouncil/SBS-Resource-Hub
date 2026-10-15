@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SBS Class Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#12233F;--paper:#F4F7FB;--card:#fff;--line:#D6DEEA;--mark:#FFD84D;--blue:#2450C8;--red:#B3261E;--muted:#5B6B82;--side:280px}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.5 "Source Sans 3",system-ui,sans-serif;color:var(--ink);background:var(--paper)}
+h1,h2,h3,.brand{font-family:"Bricolage Grotesque",system-ui,sans-serif;margin:0}
+a{color:var(--blue)}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.top{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;padding:10px 16px;background:var(--ink);color:#fff}
+.brand{font-size:1.25rem;font-weight:700;text-decoration:none;color:#fff;background:linear-gradient(transparent 62%,rgba(255,216,77,.55) 62%)}
+#q{flex:1;max-width:520px;padding:8px 12px;border:0;border-radius:6px}
+.auth{margin-left:auto;display:flex;gap:8px;align-items:center;font-size:.9rem}
+#menu{display:none}
+.btn{padding:8px 14px;border:1px solid var(--ink);border-radius:6px;background:var(--card);cursor:pointer;text-decoration:none;color:var(--ink);display:inline-block}
+.btn.pri{background:var(--mark);border-color:var(--mark);font-weight:600}
+.btn.sm{padding:3px 10px;font-size:.85rem}
+.btn.danger{color:var(--red);border-color:var(--red)}
+.top .btn{border-color:#fff;background:transparent;color:#fff}
+.layout{display:grid;grid-template-columns:var(--side) 1fr;min-height:calc(100vh - 52px)}
+aside{padding:16px;border-right:1px solid var(--line);background:var(--card);overflow-y:auto;max-height:calc(100vh - 52px);position:sticky;top:52px}
+aside select{width:100%;margin-bottom:8px;padding:6px;border:1px solid var(--line);border-radius:6px;background:#fff}
+aside h3{font-size:.95rem;margin:16px 0 4px;color:var(--muted)}
+aside a.cl{display:block;padding:5px 8px;border-radius:4px;text-decoration:none;color:var(--ink);font-size:.95rem}
+aside a.cl:hover{background:var(--paper)}
+aside a.cl.on{background:var(--mark);font-weight:600}
+main{padding:24px clamp(16px,4vw,48px);max-width:900px;width:100%}
+.chead{border-bottom:3px solid var(--ink);padding-bottom:14px;margin-bottom:20px}
+.chead h1{font-size:2rem;line-height:1.15}
+.meta{display:flex;flex-wrap:wrap;gap:6px 24px;margin:10px 0 0;color:var(--muted)}
+.meta b{color:var(--ink);font-weight:600}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.res{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--blue);border-radius:6px;padding:12px 14px;margin-bottom:12px}
+.res.link{border-left-color:var(--ink)}
+.res h3{font-size:1.1rem}
+.sub{font-size:.85rem;color:var(--muted);margin:2px 0 8px}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
+.tag{font-size:.75rem;font-weight:600;padding:1px 8px;border-radius:99px;background:var(--mark)}
+iframe{width:100%;height:520px;border:1px solid var(--line);margin-top:10px}
+.empty{color:var(--muted);padding:24px 0}
+dialog{border:0;border-radius:10px;padding:22px;width:min(480px,92vw)}
+dialog::backdrop{background:rgba(18,35,63,.55)}
+dialog label{display:block;margin:12px 0 4px;font-weight:600}
+dialog input[type=text],dialog input[type=url],dialog input[type=file]{width:100%;padding:8px;border:1px solid var(--line);border-radius:6px}
+.row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:6px;display:none;z-index:20}
+@media(max-width:800px){.layout{grid-template-columns:1fr}aside{display:none;position:static;max-height:none}aside.open{display:block}#menu{display:inline-block}.auth span{display:none}}
+</style>
+</head>
+<body>
+<header class="top">
+  <button id="menu" class="btn" aria-label="Toggle class list">Classes</button>
+  <a class="brand" href="#/">SBS Class Hub</a>
+  <input id="q" type="search" placeholder="Search classes, teachers, resources" aria-label="Search">
+  <div class="auth" id="auth"></div>
+</header>
+<div class="layout">
+  <aside id="side"></aside>
+  <main id="main"></main>
+</div>
+<dialog id="dlg"></dialog>
+<div id="toast" role="status"></div>
+
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,collection,doc,getDoc,getDocs,addDoc,setDoc,updateDoc,deleteDoc,query,where,writeBatch,increment,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getStorage,ref,uploadBytes,getDownloadURL,deleteObject} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+/* ==== 1. PASTE YOUR FIREBASE CONFIG HERE (Project settings > Your apps > Web) ==== */
+const firebaseConfig = {
+  apiKey: "AIzaSyCzggmd8JmrkfH1YULDfXsCyvf16Ke9Q1o",
+  authDomain: "sbs-academic-council.firebaseapp.com",
+  projectId: "sbs-academic-council",
+  storageBucket: "sbs-academic-council.firebasestorage.app",
+  messagingSenderId: "519327922603",
+  appId: "1:519327922603:web:982bd092777e801f54faee"
+};
+
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app),storage=getStorage(app);
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toArr=v=>Array.isArray(v)?v:String(v||'').split(',').map(x=>x.trim()).filter(Boolean);
+const MAX_MB=15;
+let user=null,admin=false,classes=[],allRes=null,filt={d:'',s:'',b:''},cur=[];
+
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',4500)}
+const main=h=>{$('#main').innerHTML=h;scrollTo(0,0)};
+function modal(h){const d=$('#dlg');d.innerHTML=h;d.showModal();d.querySelector('[data-close]')?.addEventListener('click',()=>d.close());return d}
+const isSbs=e=>/@sbs\.org$/i.test(e||'');
+const getModeration=async()=>{try{return !!(await getDoc(doc(db,'settings','global'))).data()?.moderation}catch{return false}};
+
+/* ---------- Auth ---------- */
+onAuthStateChanged(auth,async u=>{
+  if(u&&!isSbs(u.email)){await signOut(auth);toast('Sign in with your @sbs.org account.');return}
+  user=u;admin=false;
+  if(u){try{admin=(await getDoc(doc(db,'admins',u.email))).exists()}catch{}}
+  renderAuth();route();
+});
+function renderAuth(){
+  $('#auth').innerHTML=user
+    ?`<span>${esc(user.email)}</span>${admin?'<a class="btn sm" href="#/admin">Admin</a>':''}<button class="btn sm" id="out">Sign out</button>`
+    :`<button class="btn sm" id="in">Sign in with @sbs.org</button>`;
+  $('#in')?.addEventListener('click',()=>{const p=new GoogleAuthProvider();p.setCustomParameters({hd:'sbs.org'});signInWithPopup(auth,p).catch(e=>toast('Sign-in failed: '+e.code))});
+  $('#out')?.addEventListener('click',()=>signOut(auth));
+}
+
+/* ---------- Classes + sidebar ---------- */
+async function loadClasses(){
+  const s=await getDocs(collection(db,'classes'));
+  classes=s.docs.map(d=>{const c=d.data();return{...c,id:d.id,semesters:toArr(c.semesters),blocks:toArr(c.blocks)}})
+    .sort((a,b)=>(a.classCode||'').localeCompare(b.classCode||''));
+}
+const uniq=f=>[...new Set(classes.flatMap(c=>toArr(c[f])))].sort();
+function visibleClasses(){
+  const q=$('#q').value.trim().toLowerCase();
+  return classes.filter(c=>(!filt.d||c.discipline===filt.d)&&(!filt.s||c.semesters.includes(filt.s))&&(!filt.b||c.blocks.includes(filt.b))
+    &&(!q||[c.classCode,c.className,c.teacher].join(' ').toLowerCase().includes(q)));
+}
+function renderSide(){
+  const opt=(arr,v,l)=>`<select data-f="${l[0]}" aria-label="Filter by ${l[1]}"><option value="">All ${l[1]}s</option>${arr.map(x=>`<option ${x===v?'selected':''}>${esc(x)}</option>`).join('')}</select>`;
+  const id=location.hash.split('/')[2]||'',groups={};
+  visibleClasses().forEach(c=>(groups[c.discipline||'Other']??=[]).push(c));
+  $('#side').innerHTML=opt(uniq('discipline'),filt.d,['d','discipline'])+opt(uniq('semesters'),filt.s,['s','semester'])+opt(uniq('blocks'),filt.b,['b','block'])
+    +(admin?'<button class="btn sm" id="newc">+ New class</button>':'')
+    +(Object.keys(groups).sort().map(g=>`<h3>${esc(g)}</h3>`+groups[g].map(c=>`<a class="cl ${c.id===id?'on':''}" href="#/class/${c.id}">${esc(c.classCode)} ${esc(c.className)}</a>`).join('')).join('')||'<p class="empty">No classes match these filters.</p>');
+  $('#side').querySelectorAll('select').forEach(s=>s.onchange=()=>{filt[s.dataset.f]=s.value;renderSide()});
+  $('#newc')?.addEventListener('click',()=>classForm());
+}
+
+/* ---------- Routing ---------- */
+function route(){
+  const [,v,a]=location.hash.split('/');
+  $('#side').classList.remove('open');renderSide();
+  if(v==='class')return viewClass(a);
+  if(v==='search')return viewSearch(decodeURIComponent(a||''));
+  if(v==='admin')return viewAdmin();
+  main(`<h1>Class resources, shared by students</h1><p class="empty">${classes.length?`Pick a class from the list to see notes and links. ${user?'':'Sign in with your @sbs.org account to add your own.'}`:'No classes yet. An admin needs to add the first class.'}</p>`);
+}
+addEventListener('hashchange',route);
+$('#menu').onclick=()=>$('#side').classList.toggle('open');
+let st;$('#q').addEventListener('input',e=>{clearTimeout(st);st=setTimeout(()=>{const v=e.target.value.trim();v?location.hash='#/search/'+encodeURIComponent(v):location.hash='#/';renderSide()},250)});
+
+/* ---------- Resources ---------- */
+async function loadRes(id){
+  const R=collection(db,'resources'),qs=[];
+  qs.push(admin?query(R,where('classId','==',id)):query(R,where('classId','==',id),where('isApproved','==',true)));
+  if(user&&!admin)qs.push(query(R,where('classId','==',id),where('uploadedBy','==',user.email),where('isApproved','==',false)));
+  const m=new Map();
+  for(const s of await Promise.all(qs.map(getDocs)))s.docs.forEach(d=>m.set(d.id,{...d.data(),id:d.id}));
+  return [...m.values()].sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+}
+function card(r,showClass){
+  const own=user&&r.uploadedBy===user.email,c=showClass&&classes.find(x=>x.id===r.classId);
+  return `<article class="res ${r.type}" data-id="${r.id}">
+    <h3>${esc(r.title)} ${r.isApproved?'':'<span class="tag">Awaiting approval</span>'} ${admin&&r.reportsCount?`<span class="tag" style="background:#f8c9c5">${r.reportsCount} report${r.reportsCount>1?'s':''}</span>`:''}</h3>
+    <div class="sub">${r.type==='pdf'?'PDF notes':'Link'} · ${esc((r.uploadedBy||'').split('@')[0])} · ${r.createdAt?.toDate?.().toLocaleDateString()||'just now'}${c?` · <a href="#/class/${c.id}">${esc(c.classCode)} ${esc(c.className)}</a>`:''}</div>
+    <div class="acts">
+      <a class="btn sm" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${r.type==='pdf'?'Download':'Open link'}</a>
+      ${r.type==='pdf'?'<button class="btn sm" data-act="preview">Preview</button>':''}
+      ${own||admin?'<button class="btn sm" data-act="edit">Edit</button>':''}
+      ${user&&!own?'<button class="btn sm" data-act="report">Report</button>':''}
+      ${admin?'<button class="btn sm danger" data-act="del">Delete</button>':''}
+    </div></article>`;
+}
+async function viewClass(id){
+  const c=classes.find(x=>x.id===id);
+  if(!c)return main('<p class="empty">That class doesn’t exist.</p>');
+  main(`<header class="chead"><h1>${esc(c.className)}</h1><div class="meta">
+    <span><b>${esc(c.classCode)}</b></span><span>Teacher: <b>${esc(c.teacher)}</b></span>
+    <span>Semester: <b>${esc(c.semesters.join(', ')||'—')}</b></span><span>Block: <b>${esc(c.blocks.join(', ')||'—')}</b></span>
+    ${admin?'<button class="btn sm" id="editc">Edit class</button>':''}</div></header>
+    <div class="bar">${user?'<button class="btn pri" id="add">Add notes or a link</button>':'<span class="empty">Sign in with @sbs.org to add resources.</span>'}</div>
+    <div id="feed">Loading…</div>`);
+  $('#editc')?.addEventListener('click',()=>classForm(c));
+  $('#add')?.addEventListener('click',()=>addForm(id));
+  try{cur=await loadRes(id)}catch(e){return $('#feed').innerHTML='<p class="empty">Couldn’t load resources. Check your connection and refresh.</p>'}
+  feed();
+}
+function feed(){$('#feed').innerHTML=cur.map(r=>card(r)).join('')||'<p class="empty">No resources yet. Be the first to add notes or a link.</p>'}
+function viewSearch(q){
+  const L=q.toLowerCase();
+  const hits=visibleClasses();
+  main(`<h1>Results for “${esc(q)}”</h1><h2 style="margin:16px 0 8px;font-size:1.1rem">Classes</h2>
+    ${hits.map(c=>`<p><a href="#/class/${c.id}">${esc(c.classCode)} ${esc(c.className)}</a> — ${esc(c.teacher)}</p>`).join('')||'<p class="empty">No matching classes.</p>'}
+    <h2 style="margin:16px 0 8px;font-size:1.1rem">Resources</h2><div id="feed">Loading…</div>`);
+  (async()=>{
+    if(!allRes)allRes=(await getDocs(query(collection(db,'resources'),where('isApproved','==',true)))).docs.map(d=>({...d.data(),id:d.id}));
+    cur=allRes.filter(r=>r.title?.toLowerCase().includes(L));
+    $('#feed').innerHTML=cur.map(r=>card(r,true)).join('')||'<p class="empty">No matching resources.</p>';
+  })().catch(()=>$('#feed').innerHTML='<p class="empty">Couldn’t search resources.</p>');
+}
+
+/* ---------- Card actions (delegated) ---------- */
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-act]');if(!b)return;
+  const el=b.closest('[data-id]'),r=cur.find(x=>x.id===el.dataset.id);if(!r)return;
+  if(b.dataset.act==='preview'){const f=el.querySelector('iframe');return f?f.remove():el.insertAdjacentHTML('beforeend',`<iframe src="${esc(r.url)}" title="${esc(r.title)}"></iframe>`)}
+  if(b.dataset.act==='edit')return editForm(r);
+  if(b.dataset.act==='report'){
+    if(!confirm('Report this resource as inappropriate?'))return;
+    try{const w=writeBatch(db);
+      w.set(doc(db,'reports',`${r.id}_${user.uid}`),{resourceId:r.id,classId:r.classId,reportedBy:user.email,createdAt:serverTimestamp()});
+      w.update(doc(db,'resources',r.id),{reportsCount:increment(1)});await w.commit();toast('Reported. An admin will review it.')}
+    catch{toast('You’ve already reported this resource.')}
+  }
+  if(b.dataset.act==='del'){await delRes(r);route()}
+  if(b.dataset.act==='approve'){await updateDoc(doc(db,'resources',r.id),{isApproved:true});allRes=null;toast('Approved');viewAdmin()}
+  if(b.dataset.act==='dismiss'){await clearReports(r.id);await updateDoc(doc(db,'resources',r.id),{reportsCount:0});toast('Reports dismissed');viewAdmin()}
+});
+async function clearReports(id){const s=await getDocs(query(collection(db,'reports'),where('resourceId','==',id)));await Promise.all(s.docs.map(d=>deleteDoc(d.ref)))}
+async function delRes(r){
+  if(!confirm(`Delete “${r.title}”? This can’t be undone.`))return;
+  try{
+    if(r.storagePath)await deleteObject(ref(storage,r.storagePath)).catch(()=>{});
+    await clearReports(r.id);await deleteDoc(doc(db,'resources',r.id));allRes=null;toast('Deleted');
+  }catch(e){toast('Couldn’t delete: '+e.code)}
+}
+
+/* ---------- Forms ---------- */
+function addForm(classId){
+  const d=modal(`<form id="f"><h2>Add a resource</h2>
+    <label><input type="radio" name="t" value="pdf" checked> PDF notes</label>
+    <label><input type="radio" name="t" value="link"> Helpful link</label>
+    <label for="ti">Title</label><input id="ti" type="text" maxlength="120" required>
+    <div id="pdfbox"><label for="fi">PDF file (max ${MAX_MB} MB)</label><input id="fi" type="file" accept="application/pdf"></div>
+    <div id="lnkbox" hidden><label for="ur">Link</label><input id="ur" type="url" placeholder="https://"></div>
+    <p class="sub" id="note"></p>
+    <div class="row"><button type="button" class="btn" data-close>Cancel</button><button class="btn pri" id="go">Add resource</button></div></form>`);
+  const f=d.querySelector('#f');
+  f.addEventListener('change',()=>{const p=f.t.value==='pdf';$('#pdfbox').hidden=!p;$('#lnkbox').hidden=p});
+  f.onsubmit=async e=>{
+    e.preventDefault();const go=$('#go');go.disabled=true;
+    try{
+      const type=f.t.value,title=f.ti.value.trim();let url,storagePath='';
+      if(type==='pdf'){
+        const file=f.fi.files[0];
+        if(!file)throw'Choose a PDF file.';
+        if(file.size>MAX_MB*1048576)throw`That file is over ${MAX_MB} MB.`;
+        if(file.type!=='application/pdf'||(await file.slice(0,4).text())!=='%PDF')throw'Only PDF files are allowed.';
+        storagePath=`pdfs/${user.uid}/${Date.now()}-${file.name.replace(/[^\w.-]/g,'_')}`;
+        $('#note').textContent='Uploading…';
+        await uploadBytes(ref(storage,storagePath),file,{contentType:'application/pdf'});
+        url=await getDownloadURL(ref(storage,storagePath));
+      }else{
+        url=f.ur.value.trim();
+        if(!/^https?:\/\//i.test(url))throw'Enter a link starting with http:// or https://.';
+      }
+      const mod=await getModeration();
+      await addDoc(collection(db,'resources'),{classId,title,type,url,storagePath,uploadedBy:user.email,createdAt:serverTimestamp(),isApproved:admin?true:!mod,reportsCount:0});
+      allRes=null;d.close();toast(mod&&!admin?'Added. It will appear after an admin approves it.':'Added');viewClass(classId);
+    }catch(err){toast(typeof err==='string'?err:'Couldn’t add resource: '+(err.code||err.message));go.disabled=false;$('#note').textContent=''}
+  };
+}
+function editForm(r){
+  const d=modal(`<form id="f"><h2>Edit resource</h2><label for="ti">Title</label><input id="ti" type="text" maxlength="120" required value="${esc(r.title)}">
+    ${r.type==='link'?`<label for="ur">Link</label><input id="ur" type="url" required value="${esc(r.url)}">`:''}
+    <div class="row"><button type="button" class="btn" data-close>Cancel</button><button class="btn pri">Save changes</button></div></form>`);
+  d.querySelector('#f').onsubmit=async e=>{
+    e.preventDefault();const u={title:e.target.ti.value.trim()};
+    if(r.type==='link')u.url=e.target.ur.value.trim();
+    if(u.url&&!/^https?:\/\//i.test(u.url))return toast('Enter a link starting with http:// or https://.');
+    try{await updateDoc(doc(db,'resources',r.id),u);allRes=null;d.close();toast('Saved');route()}catch(err){toast('Couldn’t save: '+err.code)}
+  };
+}
+function classForm(c){
+  const v=k=>esc(Array.isArray(c?.[k])?c[k].join(', '):c?.[k]||'');
+  const d=modal(`<form id="f"><h2>${c?'Edit class':'New class'}</h2>
+    <label>Class code</label><input name="classCode" type="text" required value="${v('classCode')}">
+    <label>Class name</label><input name="className" type="text" required value="${v('className')}">
+    <label>Teacher</label><input name="teacher" type="text" required value="${v('teacher')}">
+    <label>Discipline</label><input name="discipline" type="text" list="dl" required value="${v('discipline')}"><datalist id="dl">${uniq('discipline').map(x=>`<option>${esc(x)}</option>`).join('')}</datalist>
+    <label>Semesters (comma-separated)</label><input name="semesters" type="text" placeholder="Fall, Spring" value="${v('semesters')}">
+    <label>Blocks (comma-separated)</label><input name="blocks" type="text" placeholder="A, C" value="${v('blocks')}">
+    <div class="row"><button type="button" class="btn" data-close>Cancel</button><button class="btn pri">Save class</button></div></form>`);
+  d.querySelector('#f').onsubmit=async e=>{
+    e.preventDefault();const f=e.target;
+    const data={classCode:f.classCode.value.trim(),className:f.className.value.trim(),teacher:f.teacher.value.trim(),discipline:f.discipline.value.trim(),semesters:toArr(f.semesters.value),blocks:toArr(f.blocks.value)};
+    try{
+      const id=c?c.id:doc(collection(db,'classes')).id;
+      await setDoc(doc(db,'classes',id),data);await loadClasses();d.close();toast('Saved');location.hash='#/class/'+id;route();
+    }catch(err){toast('Couldn’t save class: '+err.code)}
+  };
+}
+
+/* ---------- Admin dashboard ---------- */
+async function viewAdmin(){
+  if(!admin)return main('<p class="empty">Admins only.</p>');
+  const mod=await getModeration();
+  main(`<h1>Admin dashboard</h1>
+    <p><label><input type="checkbox" id="mod" ${mod?'checked':''}> Require approval before student uploads go live</label></p>
+    <h2 style="margin:20px 0 8px">Awaiting approval</h2><div id="pend">Loading…</div>
+    <h2 style="margin:20px 0 8px">Reported</h2><div id="rep">Loading…</div>`);
+  $('#mod').onchange=async e=>{try{await setDoc(doc(db,'settings','global'),{moderation:e.target.checked});toast(e.target.checked?'Approval required':'Approval off')}catch{toast('Couldn’t update setting')}};
+  const R=collection(db,'resources');
+  const [p,r]=await Promise.all([getDocs(query(R,where('isApproved','==',false))),getDocs(query(R,where('reportsCount','>',0)))]);
+  const P=p.docs.map(d=>({...d.data(),id:d.id})),Rp=r.docs.map(d=>({...d.data(),id:d.id}));
+  cur=[...P,...Rp];
+  const extra=(x,a)=>x.replace('<div class="acts">',`<div class="acts"><button class="btn sm pri" data-act="${a[0]}">${a[1]}</button>`);
+  $('#pend').innerHTML=P.map(x=>extra(card(x,true),['approve','Approve'])).join('')||'<p class="empty">Nothing waiting.</p>';
+  $('#rep').innerHTML=Rp.map(x=>extra(card(x,true),['dismiss','Dismiss reports'])).join('')||'<p class="empty">No reported resources.</p>';
+}
+
+(async()=>{
+  try{await loadClasses()}catch(e){toast('Couldn’t load classes. Check your Firebase config.')}
+  renderSide();route();
+})();
+</script>
+</body>
+</html>
