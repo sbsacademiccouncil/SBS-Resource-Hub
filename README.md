@@ -21,25 +21,26 @@ Top to bottom:
    - **Sidebar:** `loadClasses()`, `visibleClasses()` (applies search + filters), `renderSide()`.
    - **Routing:** `route()` reads `location.hash` (`#/class/ID`, `#/search/TEXT`, `#/stats`, `#/admin`) and calls the matching view. No server config needed.
    - **Views:** `viewClass`, `viewSearch`, `viewStats`, `viewAdmin`, each builds HTML and puts it in `<main>` via `main()`.
-   - **Resources:** `loadRes()`, `card()` (one resource's HTML), `feed()` (category chips + cards).
+   - **Resources:** `loadRes()`, `card()` (one resource's HTML), `feed()` (folder bar + cards), plus `folderForm()`, `delFolder()`, `deleteRequest()`.
    - **Actions:** one delegated click handler reads `data-act` attributes (`like`, `comments`, `report`, `edit`, `del`, `approve`, `dismiss`, ...).
    - **Forms (modals):** `addForm`, `editForm`, `classForm`, `suggestForm`, all via `modal()`.
    - **Helpers:** `helpHtml()`, `catOpts()`, `renderComments()`, `toast()`, `esc()` (always use it when putting user text into HTML).
 
 ## Data model (Firestore)
 - `classes/{id}`: `classCode`, `className`, `teacher`, `discipline`, `semesters[]`, `blocks[]`
-- `resources/{id}`: `classId`, `title`, `type` (`pdf`|`link`), `url`, `storagePath`, `category`, `uploadedBy` (email), `createdAt`, `isApproved`, `reportsCount`, `likedBy[]` (user IDs)
+- `resources/{id}`: `classId`, `title`, `type` (`pdf`|`link`), `url`, `storagePath`, `folderId` (`''` = no folder), `uploadedBy` (email), `createdAt`, `isApproved`, `reportsCount`, `likedBy[]` (user IDs)
   - `resources/{id}/comments/{id}`: `text`, `author`, `createdAt`
+- `folders/{id}`: `classId`, `name`, `createdBy`, `createdAt`
 - `reports/{resourceId_userId}`: one per student per resource
-- `suggestions/{id}`: `text`, `from`, `createdAt`
+- `suggestions/{id}`: `text`, `from`, `createdAt` (deletion requests are stored here too, with the text starting `[Deletion request]`)
 - `settings/global`: `moderation` (boolean)
 - `admins/{email}`: empty doc; existence = admin (shared with the Opportunities site)
 
 ## Who can do what
 Enforced by `firestore.rules`, not by the page. Hiding a button is cosmetic; the rules are the real lock.
 - **Anyone:** read classes, approved resources, comments, stats.
-- **Signed-in `@sbs.org`:** add resources (starts approved unless moderation is on), edit their own title/category/link, like, comment, report once, send suggestions.
-- **Admins:** everything else: classes, approvals, deleting resources/comments, reading reports and suggestions, the moderation switch.
+- **Signed-in `@sbs.org`:** add resources (starts approved unless moderation is on), create and rename folders, move their own files between folders, edit their own file name/link, like, comment, report once, send suggestions, and request deletion of their own files or any folder. Students can never delete anything.
+- **Admins:** everything else: classes, approvals, deleting resources/folders/comments (deleting a folder moves its files to “No folder”), reading reports and suggestions, the moderation switch.
 
 ## Look and feel
 All colors live in `:root` at the top of `<style>`. The same token block sits in the Opportunities site; **change both together** so the sites stay matched. `--accent` is the main navy blue, `--deep` the darkest navy (header), `--sky` and `--tint` the soft blue highlights, `--red` for destructive actions. In the Opportunities site the same colors sit under older names (`--green` is the main blue, `--green-dark` the navy, `--ochre*` the light blues). Fonts are Source Serif 4 (headings) and IBM Plex Sans (everything else), loaded by the `<link>` in `<head>`.
@@ -49,7 +50,11 @@ All colors live in `:root` at the top of `<style>`. The same token block sits in
 
 **Change the allowed email domain:** replace `sbs.org` in four places: `isSbs()` regex and `setCustomParameters({hd:...})` in `index.html`, and the `.matches('.*@sbs[.]org')` lines in `firestore.rules` and `storage.rules`. Republish both rules.
 
-**Change default category suggestions:** edit the array inside `catOpts()`. Students can still type any new category.
+**Change the file-naming suggestion:** edit `nameEx()` (the example) and `nameHint()` (the rule text) near `helpHtml()`. The hint changes automatically: files in a folder skip the unit, files with no folder start with it. Also update item 5 in `helpHtml()`. The suggestion is advice only, not enforced.
+
+**Change how deletion requests work:** `deleteRequest()` writes to `suggestions`. To use a separate collection, change the collection name there, add a matching `match` block in `firestore.rules`, and read it in `viewAdmin()`.
+
+**Let students delete their own files:** not recommended, but you would add an owner clause to `allow delete` for `resources` in `firestore.rules` and a button in `card()`.
 
 **Change the PDF size limit:** change `MAX_MB` in `index.html` **and** `15 * 1024 * 1024` in `storage.rules`. Change them together or uploads fail.
 

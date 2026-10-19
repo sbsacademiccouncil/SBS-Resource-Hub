@@ -64,6 +64,11 @@ iframe{width:100%;height:520px;border:1px solid var(--line);margin-top:10px;bord
 .chip{padding:3px 13px;border:1px solid var(--accent);border-radius:99px;background:var(--card);cursor:pointer;color:var(--deep)}
 .chip:hover{background:#E6ECF6}
 .chip.on{background:var(--accent);color:#fff}
+.chip small{opacity:.7;margin-left:4px}
+.chip.add{border-style:dashed;background:transparent}
+.ftools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.fnote{margin:0}
+dialog select{width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;background:#fff}
 .banner{background:var(--tint);color:var(--deep);padding:8px 12px;border-radius:8px;margin-bottom:14px;font-weight:600}
 .cm .c{border-top:1px solid var(--line);padding:8px 0;margin-top:8px}
 .cform{display:flex;gap:6px;margin-top:8px}.cform input{flex:1;padding:6px;border:1px solid var(--line);border-radius:6px}
@@ -118,7 +123,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const toArr=v=>Array.isArray(v)?v:String(v||'').split(',').map(x=>x.trim()).filter(Boolean);
 const MAX_MB=15;
-let user=null,admin=false,realAdmin=false,asStudent=false,catSel='',classes=[],allRes=null,filt={d:'',s:'',b:''},cur=[];
+let user=null,admin=false,realAdmin=false,asStudent=false,folSel='',curClass='',folders=[],classes=[],allRes=null,filt={d:'',s:'',b:''},cur=[];
 
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',4500)}
 const main=h=>{$('#main').innerHTML=(asStudent?'<div class="banner">Student view: you’re seeing exactly what a student sees. Admin tools are hidden.</div>':'')+h;$('#main').scrollTop=0};
@@ -193,19 +198,21 @@ function card(r,showClass){
   const own=user&&r.uploadedBy===user.email,c=showClass&&classes.find(x=>x.id===r.classId),likes=r.likedBy||[],liked=!!user&&likes.includes(user.uid);
   return `<article class="res ${r.type}" data-id="${r.id}">
     <h3>${esc(r.title)} ${r.isApproved?'':'<span class="tag">Awaiting approval</span>'} ${admin&&r.reportsCount?`<span class="tag" style="background:#f8c9c5">${r.reportsCount} report${r.reportsCount>1?'s':''}</span>`:''}</h3>
-    <div class="sub">${r.type==='pdf'?'PDF notes':'Link'} · ${esc(r.category||'Uncategorized')} · ${esc((r.uploadedBy||'').split('@')[0])} · ${r.createdAt?.toDate?.().toLocaleDateString()||'just now'}${c?` · <a href="#/class/${c.id}">${esc(c.classCode)} ${esc(c.className)}</a>`:''}</div>
+    <div class="sub">${r.type==='pdf'?'PDF notes':'Link'} · ${fname(r)?esc(fname(r))+' · ':''}${esc((r.uploadedBy||'').split('@')[0])} · ${r.createdAt?.toDate?.().toLocaleDateString()||'just now'}${c?` · <a href="#/class/${c.id}">${esc(c.classCode)} ${esc(c.className)}</a>`:''}</div>
     <div class="acts">
       <a class="btn sm" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${r.type==='pdf'?'Download':'Open link'}</a>
       <button class="btn sm" data-act="like" aria-pressed="${liked}" aria-label="Like">${liked?'♥':'♡'} ${likes.length}</button>
       <button class="btn sm" data-act="comments">Comments</button>
       ${r.type==='pdf'?'<button class="btn sm" data-act="preview">Preview</button>':''}
       ${own||admin?'<button class="btn sm" data-act="edit">Edit</button>':''}
+      ${own&&!admin?'<button class="btn sm" data-act="reqdel">Request deletion</button>':''}
       ${user&&!own?'<button class="btn sm" data-act="report">Report</button>':''}
       ${admin?'<button class="btn sm danger" data-act="del">Delete</button>':''}
     </div><div class="cm"></div></article>`;
 }
 async function viewClass(id){
-  catSel='';
+  if(curClass!==id)folSel='';
+  curClass=id;folders=[];
   const c=classes.find(x=>x.id===id);
   if(!c)return main('<p class="empty">That class doesn’t exist.</p>');
   main(`<header class="chead"><h1>${esc(c.className)}</h1><div class="meta">
@@ -216,15 +223,51 @@ async function viewClass(id){
     <div id="feed">Loading…</div>`);
   $('#editc')?.addEventListener('click',()=>classForm(c));
   $('#add')?.addEventListener('click',()=>addForm(id));
-  try{cur=await loadRes(id)}catch(e){return $('#feed').innerHTML='<p class="empty">Couldn’t load resources. Check your connection and refresh.</p>'}
+  try{[cur,folders]=await Promise.all([loadRes(id),loadFolders(id)])}catch(e){return $('#feed').innerHTML='<p class="empty">Couldn’t load resources. Check your connection and refresh.</p>'}
   feed();
 }
+const fname=r=>folders.find(x=>x.id===r.folderId)?.name||'';
+async function loadFolders(id){const q=await getDocs(query(collection(db,'folders'),where('classId','==',id)));return q.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>(a.name||'').localeCompare(b.name||''))}
 function feed(){
-  const cats=[...new Set(cur.map(r=>r.category||'Uncategorized'))].sort();
-  if(catSel&&!cats.includes(catSel))catSel='';
-  const list=cur.filter(r=>!catSel||(r.category||'Uncategorized')===catSel);
-  $('#feed').innerHTML=(cats.length>1?`<div class="chips">${['',...cats].map(c=>`<button class="chip ${c===catSel?'on':''}" data-cat="${esc(c)}">${c?esc(c):'All'}</button>`).join('')}</div>`:'')
-    +(list.map(r=>card(r)).join('')||'<p class="empty">No resources yet. Be the first to add notes or a link.</p>');
+  const inF=r=>folders.some(x=>x.id===r.folderId)?r.folderId:'';
+  if(folSel&&folSel!=='__none'&&!folders.some(x=>x.id===folSel))folSel='';
+  const n=id=>cur.filter(r=>inF(r)===id).length;
+  const list=cur.filter(r=>!folSel||(folSel==='__none'?inF(r)==='':inF(r)===folSel));
+  const chip=(v,l,c)=>`<button class="chip ${v===folSel?'on':''}" data-fol="${esc(v)}">${esc(l)} <small>${c}</small></button>`;
+  const sel=folders.find(x=>x.id===folSel);
+  $('#feed').innerHTML=`<div class="chips">${chip('','All files',cur.length)}${folders.map(f=>chip(f.id,f.name,n(f.id))).join('')}${folders.length&&n('')?chip('__none','No folder',n('')):''}${user?'<button class="chip add" data-fa="new">+ New folder</button>':''}</div>`
+    +(sel&&user?`<div class="ftools"><b>${esc(sel.name)}</b><button class="btn sm" data-fa="rename">Rename</button>${admin?'<button class="btn sm danger" data-fa="del">Delete folder</button>':'<button class="btn sm" data-fa="reqdel">Request deletion</button>'}</div>`:'')
+    +'<p class="sub fnote">Anyone signed in can create or rename folders. Only admins can delete folders or files: use <b>Request deletion</b> and an admin will review it.</p>'
+    +(list.map(r=>card(r)).join('')||`<p class="empty">${sel?'This folder is empty.':'No resources yet. Be the first to add notes or a link.'}</p>`);
+}
+function folderForm(f){
+  const d=modal(`<form id="f"><h2>${f?'Rename folder':'New folder'}</h2><p class="sub">Use folders for units or topic areas, like “Unit 3 – Cellular respiration”. Anyone can create or rename folders; only admins can delete them.</p>
+    <label for="fn">Folder name</label><input id="fn" type="text" maxlength="40" required value="${esc(f?.name||'')}">
+    <div class="row"><button type="button" class="btn" data-close>Cancel</button><button class="btn pri">Save</button></div></form>`);
+  d.querySelector('#f').onsubmit=async e=>{e.preventDefault();const name=e.target.fn.value.trim();
+    if(folders.some(x=>x.id!==f?.id&&x.name.toLowerCase()===name.toLowerCase()))return toast('A folder with that name already exists.');
+    try{
+      if(f){await updateDoc(doc(db,'folders',f.id),{name});f.name=name}
+      else{const r=await addDoc(collection(db,'folders'),{classId:curClass,name,createdBy:user.email,createdAt:serverTimestamp()});folders.push({id:r.id,classId:curClass,name});folSel=r.id}
+      folders.sort((a,b)=>a.name.localeCompare(b.name));d.close();feed()
+    }catch(err){toast('Couldn’t save folder: '+(err.code||err.message))}};
+}
+async function delFolder(f){
+  if(!confirm(`Delete the folder “${f.name}”? Files inside are kept and moved to “No folder”.`))return;
+  try{
+    const q=await getDocs(query(collection(db,'resources'),where('folderId','==',f.id)));
+    const w=writeBatch(db);q.docs.forEach(d=>w.update(d.ref,{folderId:''}));w.delete(doc(db,'folders',f.id));await w.commit();
+    folders=folders.filter(x=>x.id!==f.id);cur.forEach(r=>{if(r.folderId===f.id)r.folderId=''});folSel='';allRes=null;feed();toast('Folder deleted');
+  }catch(e){toast('Couldn’t delete: '+(e.code||e.message))}
+}
+function deleteRequest(kind,item){
+  const name=kind==='folder'?item.name:item.title,cl=classes.find(c=>c.id===curClass);
+  const d=modal(`<form id="f"><h2>Request deletion</h2><p class="sub">Only admins can delete ${kind==='folder'?'folders':'files'}. Tell them why, and they’ll review your request.</p>
+    <p><b>${esc(name)}</b></p><label for="rs">Reason</label><input id="rs" type="text" maxlength="200" required placeholder="e.g. uploaded by mistake, wrong class">
+    <div class="row"><button type="button" class="btn" data-close>Cancel</button><button class="btn pri">Send request</button></div></form>`);
+  d.querySelector('#f').onsubmit=async e=>{e.preventDefault();
+    try{await addDoc(collection(db,'suggestions'),{text:`[Deletion request] ${kind} “${name}” in ${cl?cl.classCode+' '+cl.className:'a class'}. Reason: ${e.target.rs.value.trim()}`,from:user.email,createdAt:serverTimestamp()});d.close();toast('Request sent. An admin will review it.')}
+    catch{toast('Couldn’t send the request. Please try again.')}};
 }
 function viewSearch(q){
   const L=q.toLowerCase();
@@ -258,6 +301,7 @@ document.addEventListener('click',async e=>{
     try{await addDoc(collection(db,'resources',r.id,'comments'),{text:t,author:user.email,createdAt:serverTimestamp()});renderComments(box,r.id)}catch{toast('Couldn’t post your comment.')}return}
   if(b.dataset.act==='cdel'){if(!confirm('Remove this comment?'))return;
     try{await deleteDoc(doc(db,'resources',r.id,'comments',b.dataset.cid));renderComments(box,r.id)}catch{toast('Couldn’t remove the comment.')}return}
+  if(b.dataset.act==='reqdel')return deleteRequest('file',r);
   if(b.dataset.act==='edit')return editForm(r);
   if(b.dataset.act==='report'){
     if(!confirm('Report this resource as inappropriate?'))return;
@@ -286,13 +330,17 @@ function addForm(classId){
     <p class="sub"><b>Tip:</b> a Google Drive link is best. Upload to Drive, click Share, choose “Anyone with the link”, copy the link, and paste it here.</p>
     <label><input type="radio" name="t" value="link" checked> Google Drive or other link (recommended)</label>
     <label><input type="radio" name="t" value="pdf"> Upload a PDF instead</label>
-    <label for="ti">Title</label><input id="ti" type="text" maxlength="120" required>
-    <label for="ca">Category</label><input id="ca" type="text" list="cats" maxlength="40" required placeholder="Pick one or type a new category"><datalist id="cats">${catOpts()}</datalist>
+    <label for="ti">File name</label><input id="ti" type="text" maxlength="120" required>
+    <p class="sub" id="nm"></p>
+    <label for="fo">Folder</label><select id="fo">${folderOpts(folSel&&folSel!=='__none'?folSel:'')}<option value="__new">+ New folder…</option></select>
+    <input id="nf" type="text" maxlength="40" placeholder="New folder name" hidden>
     <div id="pdfbox" hidden><label for="fi">PDF file (max ${MAX_MB} MB)</label><input id="fi" type="file" accept="application/pdf"></div>
     <div id="lnkbox"><label for="ur">Link</label><input id="ur" type="url" placeholder="https://"></div>
     <p class="sub" id="note"></p>
     <div class="row"><button type="button" class="btn" data-close>Cancel</button><button class="btn pri" id="go">Add resource</button></div></form>`);
   const f=d.querySelector('#f');
+  const sync=()=>{const inF=f.fo.value!=='';$('#nm').innerHTML=nameHint(inF);f.ti.placeholder=nameEx(inF);$('#nf').hidden=f.fo.value!=='__new';$('#nf').required=f.fo.value==='__new'};
+  f.fo.addEventListener('change',sync);sync();
   f.addEventListener('change',()=>{const p=f.t.value==='pdf';$('#pdfbox').hidden=!p;$('#lnkbox').hidden=p});
   f.onsubmit=async e=>{
     e.preventDefault();const go=$('#go');go.disabled=true;
@@ -312,18 +360,23 @@ function addForm(classId){
         if(!/^https?:\/\//i.test(url))throw'Enter a link starting with http:// or https://.';
       }
       const mod=await getModeration();
-      await addDoc(collection(db,'resources'),{classId,title,type,url,storagePath,category:f.ca.value.trim(),likedBy:[],uploadedBy:user.email,createdAt:serverTimestamp(),isApproved:admin?true:!mod,reportsCount:0});
+      let folderId=f.fo.value;
+      if(folderId==='__new'){const nm=f.nf.value.trim(),ex=folders.find(x=>x.name.toLowerCase()===nm.toLowerCase());
+        if(ex)folderId=ex.id;else folderId=(await addDoc(collection(db,'folders'),{classId,name:nm,createdBy:user.email,createdAt:serverTimestamp()})).id}
+      await addDoc(collection(db,'resources'),{classId,title,type,url,storagePath,folderId,likedBy:[],uploadedBy:user.email,createdAt:serverTimestamp(),isApproved:admin?true:!mod,reportsCount:0});
       allRes=null;d.close();toast(mod&&!admin?'Added. It will appear after an admin approves it.':'Added');viewClass(classId);
     }catch(err){toast(typeof err==='string'?err:'Couldn’t add resource: '+(err.code||err.message));go.disabled=false;$('#note').textContent=''}
   };
 }
 function editForm(r){
+  const withF=r.classId===curClass;
   const d=modal(`<form id="f"><h2>Edit resource</h2><label for="ti">Title</label><input id="ti" type="text" maxlength="120" required value="${esc(r.title)}">
-    <label for="ca">Category</label><input id="ca" type="text" list="cats" maxlength="40" required value="${esc(r.category||'')}"><datalist id="cats">${catOpts()}</datalist>
+    ${withF?`<label for="fo">Folder</label><select id="fo">${folderOpts(r.folderId||'')}</select>`:''}
+    <p class="sub">Tip: name files <b>Topic – Type – Mon YYYY</b>. Add the unit first if the file isn’t in a folder.</p>
     ${r.type==='link'?`<label for="ur">Link</label><input id="ur" type="url" required value="${esc(r.url)}">`:''}
     <div class="row"><button type="button" class="btn" data-close>Cancel</button><button class="btn pri">Save changes</button></div></form>`);
   d.querySelector('#f').onsubmit=async e=>{
-    e.preventDefault();const u={title:e.target.ti.value.trim(),category:e.target.ca.value.trim()};
+    e.preventDefault();const u={title:e.target.ti.value.trim()};if(withF)u.folderId=e.target.fo.value;
     if(r.type==='link')u.url=e.target.ur.value.trim();
     if(u.url&&!/^https?:\/\//i.test(u.url))return toast('Enter a link starting with http:// or https://.');
     try{await updateDoc(doc(db,'resources',r.id),u);allRes=null;d.close();toast('Saved');route()}catch(err){toast('Couldn’t save: '+err.code)}
@@ -367,18 +420,23 @@ async function viewAdmin(){
   $('#pend').innerHTML=P.map(x=>extra(card(x,true),['approve','Approve'])).join('')||'<p class="empty">Nothing waiting.</p>';
   $('#rep').innerHTML=Rp.map(x=>extra(card(x,true),['dismiss','Dismiss reports'])).join('')||'<p class="empty">No reported resources.</p>';
   try{const ss=(await getDocs(collection(db,'suggestions'))).docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-    $('#sugs').innerHTML=ss.map(x=>`<article class="res"><div>${esc(x.text)}</div><div class="sub">${esc(x.from)} · ${x.createdAt?.toDate?.().toLocaleDateString()||''}</div><button class="btn sm danger" data-sdel="${x.id}">Delete</button></article>`).join('')||'<p class="empty">No suggestions yet.</p>'}
+    $('#sugs').innerHTML=ss.map(x=>`<article class="res"><div>${x.text?.startsWith('[Deletion request]')?'<span class="tag" style="background:#F9DAD3;color:#8C2A1A">Deletion request</span> ':''}${esc(x.text)}</div><div class="sub">${esc(x.from)} · ${x.createdAt?.toDate?.().toLocaleDateString()||''}</div><button class="btn sm danger" data-sdel="${x.id}">Delete</button></article>`).join('')||'<p class="empty">No suggestions yet.</p>'}
   catch{$('#sugs').innerHTML='<p class="empty">Couldn’t load suggestions.</p>'}
 }
 
+const monYr=()=>new Date().toLocaleString('en-US',{month:'short',year:'numeric'});
+const nameEx=inF=>(inF?'':'Unit 3 – ')+'Cellular respiration – Notes – '+monYr();
+const nameHint=inF=>(inF?'Format: <b>Topic – Type – Mon YYYY</b>. The folder already shows the unit, so leave it out.':'Format: <b>Unit – Topic – Type – Mon YYYY</b>. Choose a folder to skip the unit.')+'<br>Type: Notes, Study guide, Practice test, Slides, or Homework help.<br>Example: <i>'+esc(nameEx(inF))+'</i>';
+const folderOpts=sel=>'<option value="">No folder</option>'+folders.map(x=>`<option value="${esc(x.id)}" ${x.id===sel?'selected':''}>${esc(x.name)}</option>`).join('');
 const helpHtml=()=>`<section class="help"><h2>How this works</h2><ol>
 <li><b>Find your class</b> in the list, or use search and the filters.</li>
 <li><b>Sign in</b> with your @sbs.org Google account to add resources, like, and comment. Anyone can browse without signing in.</li>
 <li><b>Use Google Drive whenever you can.</b> Upload your notes to Drive, click Share, set access to “Anyone with the link”, copy the link, then choose “Add notes or a link” and paste it. Direct PDF uploads work too, but Drive links keep the hub fast and let you update the file later.</li>
-<li><b>Choose a category</b> (Study guides, Practice tests, and so on) so others can find your resource. Type a new name to create a category.</li>
+<li><b>Use folders.</b> Inside a class, click “+ New folder” (for a unit or topic area) and file your resource there. Anyone can create or rename folders.</li>
+<li><b>Name files the same way:</b> <i>Topic – Type – Mon YYYY</i>, like “Cellular respiration – Notes – Oct 2026”. The folder already shows the unit, so don’t repeat it. If a file isn’t in a folder, start with the unit: “Unit 3 – Cellular respiration – Notes – Oct 2026”.</li>
+<li><b>Deleting:</b> only admins can delete files and folders. Click <b>Request deletion</b> on your file or folder and an admin will review it.</li>
 <li><b>Keep it school-appropriate.</b> Use Report on anything that doesn’t belong. Admins review reports.</li>
 <li><b>Have an idea or found a problem?</b> Use “Send a suggestion” at the bottom of any page to open the suggestion form.</li></ol></section>`;
-const catOpts=()=>[...new Set(['Notes','Study guides','Practice tests','Homework help','Other',...cur.map(r=>r.category).filter(Boolean)])].map(x=>`<option>${esc(x)}</option>`).join('');
 async function renderComments(box,id){
   try{
     const cs=(await getDocs(collection(db,'resources',id,'comments'))).docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));
@@ -400,7 +458,7 @@ async function viewStats(){
     <h2>Top contributors</h2>${board.length?`<ol class="lb">${board.map(([e,p])=>`<li><b>${esc(e.split('@')[0])}</b>: ${p.n} resource${p.n>1?'s':''}, ${p.l} like${p.l===1?'':'s'}</li>`).join('')}</ol>`:'<p class="empty">No contributions yet.</p>'}
     <h2 style="margin-top:20px">Resources by subject</h2>${bars(tally(r=>classes.find(c=>c.id===r.classId)?.discipline||'Other'))}
     <h2 style="margin-top:20px">Links vs PDF uploads</h2>${bars(tally(r=>r.type==='pdf'?'PDF uploads':'Links'))}
-    <h2 style="margin-top:20px">By category</h2>${bars(tally(r=>r.category||'Uncategorized'))}`;
+    <h2 style="margin-top:20px">Most active classes</h2>${bars(tally(r=>classes.find(c=>c.id===r.classId)?.classCode||'Unknown').slice(0,8))}`;
 }
 function suggestForm(){
   if(!user)return toast('Sign in with your @sbs.org account to send a suggestion.');
@@ -414,7 +472,9 @@ function suggestForm(){
 $('#sug').onclick=suggestForm;
 $('#help').onclick=()=>modal(helpHtml()+'<div class="row"><button class="btn" data-close>Close</button></div>');
 document.addEventListener('click',async e=>{
-  const c=e.target.closest('[data-cat]');if(c){catSel=c.dataset.cat;return feed()}
+  const c=e.target.closest('[data-fol]');if(c){folSel=c.dataset.fol;return feed()}
+  const fa=e.target.closest('[data-fa]');if(fa){const f=folders.find(x=>x.id===folSel),a=fa.dataset.fa;
+    if(a==='new')return folderForm();if(a==='rename'&&f)return folderForm(f);if(a==='del'&&f)return delFolder(f);if(a==='reqdel'&&f)return deleteRequest('folder',f);return}
   const b=e.target.closest('[data-sdel]');if(!b||!confirm('Delete this suggestion?'))return;
   try{await deleteDoc(doc(db,'suggestions',b.dataset.sdel));viewAdmin()}catch{toast('Couldn’t delete.')}
 });
